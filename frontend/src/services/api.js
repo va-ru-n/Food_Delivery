@@ -39,6 +39,7 @@ export const restaurantAPI = {
 export const orderAPI = {
   create: (payload) => api.post('/orders', payload),
   getMine: () => api.get('/orders/mine'),
+  getById: (id) => api.get(`/orders/mine/${id}`),
   getAll: () => api.get('/orders'),
   updateStatus: (id, status) => api.patch(`/orders/${id}/status`, { status }),
   cancelByCustomer: (id) => api.patch(`/orders/${id}/cancel`),
@@ -62,8 +63,10 @@ export const restaurantOwnerAPI = {
 
 export const deliveryAPI = {
   getMyOrders: () => api.get('/delivery/orders'),
-  markPickedUp: (id) => api.patch(`/delivery/orders/${id}/pickup`),
-  markDelivered: (id) => api.patch(`/delivery/orders/${id}/delivered`)
+  acceptAssigned: (id) => api.patch(`/delivery/orders/${id}/accept`),
+  rejectAssigned: (id) => api.patch(`/delivery/orders/${id}/reject`),
+  updateStatus: (id, status) => api.patch(`/delivery/orders/${id}/status`, { status }),
+  updateLocation: (latitude, longitude) => api.patch('/delivery/location', { latitude, longitude })
 };
 
 export default api;

@@ -3,6 +3,23 @@ const FoodItem = require('../models/FoodItem');
 const User = require('../models/User');
 const Order = require('../models/Order');
 
+const parseGeoLocation = (payload) => {
+  if (payload?.geoLocation?.type === 'Point' && Array.isArray(payload.geoLocation.coordinates)) {
+    const [longitude, latitude] = payload.geoLocation.coordinates.map(Number);
+    if (Number.isFinite(longitude) && Number.isFinite(latitude)) {
+      return { type: 'Point', coordinates: [longitude, latitude] };
+    }
+  }
+
+  const latitude = Number(payload?.latitude);
+  const longitude = Number(payload?.longitude);
+  if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+    return { type: 'Point', coordinates: [longitude, latitude] };
+  }
+
+  return undefined;
+};
+
 const getRestaurants = async (req, res, next) => {
   try {
     const restaurants = await Restaurant.find()
@@ -42,12 +59,15 @@ const addRestaurant = async (req, res, next) => {
       return res.status(400).json({ message: 'Valid restaurant owner is required' });
     }
 
+    const geoLocation = parseGeoLocation(req.body);
+
     const restaurant = await Restaurant.create({
       name,
       image,
       description,
       location,
-      owner: ownerId
+      owner: ownerId,
+      ...(geoLocation ? { geoLocation } : {})
     });
 
     res.status(201).json(restaurant);

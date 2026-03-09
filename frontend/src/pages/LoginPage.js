@@ -5,7 +5,7 @@ import ErrorMessage from '../components/ErrorMessage';
 
 function LoginPage({ onAuthSuccess }) {
   const navigate = useNavigate();
-  const [formData, setFormData] = useState({ email: '', password: '' });
+  const [formData, setFormData] = useState({ identifier: '', password: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -16,14 +16,33 @@ function LoginPage({ onAuthSuccess }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!formData.email || !formData.password) {
+    if (!formData.identifier || !formData.password) {
       setError('Please fill all fields');
       return;
     }
 
+    const trimmedIdentifier = formData.identifier.trim();
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedIdentifier);
+    const isPhone = /^[0-9+\-\s]{8,15}$/.test(trimmedIdentifier);
+
+    if (!isEmail && !isPhone) {
+      setError('Enter a valid email or phone number');
+      return;
+    }
+
+    const payload = {
+      password: formData.password
+    };
+
+    if (isEmail) {
+      payload.email = trimmedIdentifier;
+    } else {
+      payload.phoneNumber = trimmedIdentifier;
+    }
+
     try {
       setLoading(true);
-      const { data } = await authAPI.login(formData);
+      const { data } = await authAPI.login(payload);
       onAuthSuccess(data);
       if (data.role === 'restaurant') {
         navigate('/restaurant/dashboard');
@@ -48,17 +67,17 @@ function LoginPage({ onAuthSuccess }) {
         <ErrorMessage message={error} />
 
         <div>
-          <label htmlFor="email" className="mb-1 block text-sm font-medium text-gray-700">
-            Email
+          <label htmlFor="identifier" className="mb-1 block text-sm font-medium text-gray-700">
+            Email or Phone Number
           </label>
           <input
-            id="email"
-            name="email"
-            type="email"
-            value={formData.email}
+            id="identifier"
+            name="identifier"
+            type="text"
+            value={formData.identifier}
             onChange={handleChange}
             className="w-full rounded-md border border-gray-300 px-3 py-2"
-            placeholder="you@example.com"
+            placeholder="Enter email or phone number"
           />
         </div>
 

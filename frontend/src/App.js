@@ -14,6 +14,7 @@ import RestaurantLoginPage from './pages/RestaurantLoginPage';
 import RestaurantDashboard from './pages/RestaurantDashboard';
 import DeliveryLoginPage from './pages/DeliveryLoginPage';
 import DeliveryDashboardPage from './pages/DeliveryDashboardPage';
+import CustomerTracking from './pages/CustomerTracking';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -46,6 +47,7 @@ function App() {
       _id: authData._id,
       name: authData.name,
       email: authData.email,
+      phoneNumber: authData.phoneNumber,
       role: authData.role
     };
 
@@ -198,6 +200,14 @@ function App() {
             element={
               <ProtectedRoute user={user} allowedRoles={['customer']}>
                 <OrdersPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/orders/:id/tracking"
+            element={
+              <ProtectedRoute user={user} allowedRoles={['customer']}>
+                <CustomerTracking />
               </ProtectedRoute>
             }
           />

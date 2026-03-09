@@ -4,7 +4,7 @@ import ErrorMessage from '../components/ErrorMessage';
 import { authAPI } from '../services/api';
 
 function ForgotPasswordPage() {
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [code, setCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [loadingGenerate, setLoadingGenerate] = useState(false);
@@ -18,14 +18,24 @@ function ForgotPasswordPage() {
     setError('');
     setSuccess('');
 
-    if (!email.trim()) {
-      setError('Email is required');
+    const input = identifier.trim();
+    if (!input) {
+      setError('Email or phone number is required');
+      return;
+    }
+
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input);
+    const isPhone = /^[0-9+\-\s]{8,15}$/.test(input);
+
+    if (!isEmail && !isPhone) {
+      setError('Enter a valid email or phone number');
       return;
     }
 
     try {
       setLoadingGenerate(true);
-      const { data } = await authAPI.forgotPassword({ email: email.trim() });
+      const payload = isEmail ? { email: input } : { phoneNumber: input };
+      const { data } = await authAPI.forgotPassword(payload);
       setSuccess(data.message || 'Reset code generated');
       setGeneratedCodeHint(data.resetCode ? `Your reset code: ${data.resetCode}` : '');
     } catch (err) {
@@ -41,15 +51,25 @@ function ForgotPasswordPage() {
     setError('');
     setSuccess('');
 
-    if (!email.trim() || !code.trim() || !newPassword.trim()) {
-      setError('Email, reset code, and new password are required');
+    const input = identifier.trim();
+    if (!input || !code.trim() || !newPassword.trim()) {
+      setError('Email/Phone, reset code, and new password are required');
+      return;
+    }
+
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input);
+    const isPhone = /^[0-9+\-\s]{8,15}$/.test(input);
+
+    if (!isEmail && !isPhone) {
+      setError('Enter a valid email or phone number');
       return;
     }
 
     try {
       setLoadingReset(true);
+      const payload = isEmail ? { email: input } : { phoneNumber: input };
       const { data } = await authAPI.resetPassword({
-        email: email.trim(),
+        ...payload,
         code: code.trim(),
         newPassword: newPassword.trim()
       });
@@ -76,16 +96,16 @@ function ForgotPasswordPage() {
       )}
 
       <form onSubmit={handleGenerateCode} className="space-y-3">
-        <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-          Email
+        <label htmlFor="identifier" className="block text-sm font-medium text-gray-700">
+          Email or Phone Number
         </label>
         <input
-          id="email"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          id="identifier"
+          type="text"
+          value={identifier}
+          onChange={(e) => setIdentifier(e.target.value)}
           className="w-full rounded-md border border-gray-300 px-3 py-2"
-          placeholder="you@example.com"
+          placeholder="Enter email or phone number"
         />
         <button
           type="submit"

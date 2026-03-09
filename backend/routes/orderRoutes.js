@@ -2,6 +2,7 @@ const express = require('express');
 const {
   createOrder,
   getUserOrders,
+  getOrderByIdForUser,
   updateOrderStatus,
   getAllOrders,
   cancelOrderByUser,
@@ -13,6 +14,7 @@ const router = express.Router();
 
 router.post('/', protect, createOrder);
 router.get('/mine', protect, getUserOrders);
+router.get('/mine/:id', protect, getOrderByIdForUser);
 router.patch('/:id/cancel', protect, cancelOrderByUser);
 router.patch('/:id/hide', protect, hideOrderFromUserHistory);
 router.get('/', protect, adminOnly, getAllOrders);

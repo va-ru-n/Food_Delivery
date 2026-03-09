@@ -19,6 +19,17 @@ const restaurantSchema = new mongoose.Schema(
       type: String,
       required: true
     },
+    geoLocation: {
+      type: {
+        type: String,
+        enum: ['Point'],
+        default: 'Point'
+      },
+      coordinates: {
+        type: [Number],
+        default: undefined
+      }
+    },
     openingTime: {
       type: String,
       default: '',
@@ -41,5 +52,7 @@ const restaurantSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+restaurantSchema.index({ geoLocation: '2dsphere' });
 
 module.exports = mongoose.model('Restaurant', restaurantSchema);

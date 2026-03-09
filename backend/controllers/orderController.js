@@ -1,8 +1,19 @@
 const Order = require('../models/Order');
 const FoodItem = require('../models/FoodItem');
 const Restaurant = require('../models/Restaurant');
+const { emitToRestaurant, broadcastOrderUpdated } = require('../socket/socketEmitter');
+const { ACCEPTANCE_WINDOW_MS, scheduleOrderAcceptanceTimer, clearOrderTimer } = require('../services/orderTimerService');
 
-const validAdminStatuses = ['Pending', 'Preparing', 'Out for Delivery', 'Delivered', 'Cancelled'];
+const validAdminStatuses = [
+  'Pending',
+  'Preparing',
+  'Assigned',
+  'PickedUp',
+  'OutForDelivery',
+  'Delivered',
+  'Rejected',
+  'Cancelled'
+];
 
 const createOrder = async (req, res, next) => {
   try {
@@ -85,7 +96,6 @@ const createOrder = async (req, res, next) => {
     const normalizedItems = [];
     let computedTotal = 0;
 
-    // Build secure order items from DB values to prevent client-side tampering.
     for (const item of items) {
       const quantity = Number(item.quantity);
       if (!Number.isInteger(quantity) || quantity <= 0) {
@@ -112,6 +122,8 @@ const createOrder = async (req, res, next) => {
       return res.status(400).json({ message: 'Total amount does not match order items' });
     }
 
+    const acceptBy = new Date(Date.now() + ACCEPTANCE_WINDOW_MS);
+
     const order = await Order.create({
       userId: req.user._id,
       restaurantId,
@@ -119,10 +131,22 @@ const createOrder = async (req, res, next) => {
       totalAmount: computedTotal,
       deliveryAddress: deliveryAddress.trim(),
       phoneNumber: phoneNumber.trim(),
+      acceptBy,
       ...(normalizedDeliveryLocation ? { deliveryLocation: normalizedDeliveryLocation } : {})
     });
 
-    res.status(201).json(order);
+    scheduleOrderAcceptanceTimer(order._id, acceptBy);
+
+    const populatedOrder = await Order.findById(order._id)
+      .populate('userId', 'name email')
+      .populate('restaurantId', 'name location')
+      .populate('deliveryPartner', 'name email');
+
+    const payload = populatedOrder.toObject();
+    emitToRestaurant(restaurantId, 'newOrder', payload);
+    broadcastOrderUpdated(payload);
+
+    res.status(201).json(populatedOrder);
   } catch (error) {
     next(error);
   }
@@ -131,11 +155,56 @@ const createOrder = async (req, res, next) => {
 const getUserOrders = async (req, res, next) => {
   try {
     const orders = await Order.find({ userId: req.user._id, deletedByUser: false })
-      .populate('deliveryPartner', 'name email')
+      .populate('restaurantId', 'name location')
+      .populate('deliveryPartner', 'name email phoneNumber')
       .sort({ createdAt: -1 });
-    res.status(200).json(orders);
+
+    const orderPromises = orders.map(async (order) => {
+      const orderObj = order.toObject();
+      if (order.deliveryPartner) {
+        const DeliveryPartner = require('../models/DeliveryPartner');
+        const deliveryPartnerProfile = await DeliveryPartner.findOne({ userId: order.deliveryPartner._id });
+        if (deliveryPartnerProfile && deliveryPartnerProfile.location) {
+          orderObj.deliveryPartnerLocation = deliveryPartnerProfile.location;
+        }
+      }
+      return orderObj;
+    });
+
+    const populatedOrders = await Promise.all(orderPromises);
+    res.status(200).json(populatedOrders);
   } catch (error) {
     next(error);
+  }
+};
+
+const getOrderByIdForUser = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const order = await Order.findById(id)
+      .populate('restaurantId', 'name location geoLocation')
+      .populate('deliveryPartner', 'name email phoneNumber');
+
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    if (String(order.userId) !== String(req.user._id) && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Not authorized to view this order' });
+    }
+
+    const orderObj = order.toObject();
+    if (order.deliveryPartner) {
+      const DeliveryPartner = require('../models/DeliveryPartner');
+      const deliveryPartnerProfile = await DeliveryPartner.findOne({ userId: order.deliveryPartner._id });
+      if (deliveryPartnerProfile && deliveryPartnerProfile.location) {
+        orderObj.deliveryPartnerLocation = deliveryPartnerProfile.location;
+      }
+    }
+
+    return res.status(200).json(orderObj);
+  } catch (error) {
+    return next(error);
   }
 };
 
@@ -148,15 +217,22 @@ const updateOrderStatus = async (req, res, next) => {
       return res.status(400).json({ message: 'Invalid order status' });
     }
 
-    const order = await Order.findById(id);
+    const order = await Order.findById(id)
+      .populate('userId', 'name email')
+      .populate('restaurantId', 'name location')
+      .populate('deliveryPartner', 'name email');
 
     if (!order) {
       return res.status(404).json({ message: 'Order not found' });
     }
 
     order.status = status;
+    if (status !== 'Pending') {
+      clearOrderTimer(order._id);
+    }
     await order.save();
 
+    broadcastOrderUpdated(order.toObject());
     res.status(200).json(order);
   } catch (error) {
     next(error);
@@ -171,7 +247,20 @@ const getAllOrders = async (req, res, next) => {
       .populate('deliveryPartner', 'name email')
       .sort({ createdAt: -1 });
 
-    res.status(200).json(orders);
+    const orderPromises = orders.map(async (order) => {
+      const orderObj = order.toObject();
+      if (order.deliveryPartner) {
+        const DeliveryPartner = require('../models/DeliveryPartner');
+        const deliveryPartnerProfile = await DeliveryPartner.findOne({ userId: order.deliveryPartner._id });
+        if (deliveryPartnerProfile && deliveryPartnerProfile.location) {
+          orderObj.deliveryPartnerLocation = deliveryPartnerProfile.location;
+        }
+      }
+      return orderObj;
+    });
+
+    const populatedOrders = await Promise.all(orderPromises);
+    res.status(200).json(populatedOrders);
   } catch (error) {
     next(error);
   }
@@ -185,7 +274,9 @@ const cancelOrderByUser = async (req, res, next) => {
       return res.status(403).json({ message: 'Only customers can cancel orders' });
     }
 
-    const order = await Order.findOne({ _id: id, userId: req.user._id });
+    const order = await Order.findOne({ _id: id, userId: req.user._id })
+      .populate('restaurantId', 'name location')
+      .populate('deliveryPartner', 'name email');
     if (!order) {
       return res.status(404).json({ message: 'Order not found' });
     }
@@ -195,7 +286,11 @@ const cancelOrderByUser = async (req, res, next) => {
     }
 
     order.status = 'Cancelled';
+    order.cancelReason = 'Cancelled by customer';
     await order.save();
+    clearOrderTimer(order._id);
+
+    broadcastOrderUpdated(order.toObject());
 
     return res.status(200).json(order);
   } catch (error) {
@@ -216,7 +311,7 @@ const hideOrderFromUserHistory = async (req, res, next) => {
       return res.status(404).json({ message: 'Order not found' });
     }
 
-    if (!['Delivered', 'Cancelled'].includes(order.status)) {
+    if (!['Delivered', 'Cancelled', 'Rejected'].includes(order.status)) {
       return res.status(400).json({ message: 'Only delivered or cancelled orders can be removed from history' });
     }
 
@@ -232,6 +327,7 @@ const hideOrderFromUserHistory = async (req, res, next) => {
 module.exports = {
   createOrder,
   getUserOrders,
+  getOrderByIdForUser,
   updateOrderStatus,
   getAllOrders,
   cancelOrderByUser,

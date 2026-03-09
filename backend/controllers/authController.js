@@ -1,35 +1,66 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const DeliveryPartner = require('../models/DeliveryPartner');
 
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '7d' });
 };
 
+const ensureDeliveryPartnerProfile = async (user) => {
+  if (!user || user.role !== 'delivery') {
+    return;
+  }
+
+  await DeliveryPartner.findOneAndUpdate(
+    { userId: user._id },
+    {
+      $setOnInsert: {
+        userId: user._id,
+        status: 'available',
+        location: {
+          type: 'Point',
+          coordinates: [0, 0]
+        }
+      },
+      $set: {
+        name: user.name,
+        phone: user.phoneNumber || user.email || 'N/A'
+      }
+    },
+    { upsert: true, new: true }
+  );
+};
+
 const registerUser = async (req, res, next) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, phoneNumber, password } = req.body;
 
-    if (!name || !email || !password) {
-      return res.status(400).json({ message: 'Name, email, and password are required' });
+    if (!name || !phoneNumber || !password) {
+      return res.status(400).json({ message: 'Name, phone number, and password are required' });
     }
 
     if (password.length < 6) {
       return res.status(400).json({ message: 'Password must be at least 6 characters' });
     }
 
-    const existingUser = await User.findOne({ email });
+    const normalizedPhoneNumber = String(phoneNumber).trim();
+    if (!/^[0-9+\-\s]{8,15}$/.test(normalizedPhoneNumber)) {
+      return res.status(400).json({ message: 'Valid phone number is required' });
+    }
+
+    const existingUser = await User.findOne({ phoneNumber: normalizedPhoneNumber });
 
     if (existingUser) {
-      return res.status(400).json({ message: 'Email already registered' });
+      return res.status(400).json({ message: 'Phone number already registered' });
     }
 
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
     const user = await User.create({
-      name,
-      email,
+      name: name.trim(),
+      phoneNumber: normalizedPhoneNumber,
       password: hashedPassword
     });
 
@@ -37,6 +68,7 @@ const registerUser = async (req, res, next) => {
       _id: user._id,
       name: user.name,
       email: user.email,
+      phoneNumber: user.phoneNumber,
       role: user.role,
       token: generateToken(user._id)
     });
@@ -47,13 +79,26 @@ const registerUser = async (req, res, next) => {
 
 const loginUser = async (req, res, next) => {
   try {
-    const { email, password } = req.body;
+    const { phoneNumber, email, password } = req.body;
 
-    if (!email || !password) {
-      return res.status(400).json({ message: 'Email and password are required' });
+    if (!password || (!phoneNumber && !email)) {
+      return res.status(400).json({ message: 'Email or phone number and password are required' });
     }
 
-    const user = await User.findOne({ email });
+    const normalizedPhoneNumber = String(phoneNumber || '').trim();
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+
+    if (normalizedPhoneNumber && !/^[0-9+\-\s]{8,15}$/.test(normalizedPhoneNumber)) {
+      return res.status(400).json({ message: 'Valid phone number is required' });
+    }
+
+    if (normalizedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return res.status(400).json({ message: 'Valid email is required' });
+    }
+
+    const user = await User.findOne(
+      normalizedEmail ? { email: normalizedEmail } : { phoneNumber: normalizedPhoneNumber }
+    );
 
     if (!user) {
       return res.status(401).json({ message: 'Invalid credentials' });
@@ -65,10 +110,13 @@ const loginUser = async (req, res, next) => {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
+    await ensureDeliveryPartnerProfile(user);
+
     res.status(200).json({
       _id: user._id,
       name: user.name,
       email: user.email,
+      phoneNumber: user.phoneNumber,
       role: user.role,
       token: generateToken(user._id)
     });
@@ -79,15 +127,29 @@ const loginUser = async (req, res, next) => {
 
 const forgotPassword = async (req, res, next) => {
   try {
-    const { email } = req.body;
-    if (!email) {
-      return res.status(400).json({ message: 'Email is required' });
+    const { phoneNumber, email } = req.body;
+    if (!phoneNumber && !email) {
+      return res.status(400).json({ message: 'Email or phone number is required' });
     }
 
-    const user = await User.findOne({ email: email.trim().toLowerCase() });
+    const normalizedPhoneNumber = String(phoneNumber || '').trim();
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+
+    if (normalizedPhoneNumber && !/^[0-9+\-\s]{8,15}$/.test(normalizedPhoneNumber)) {
+      return res.status(400).json({ message: 'Valid phone number is required' });
+    }
+
+    if (normalizedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return res.status(400).json({ message: 'Valid email is required' });
+    }
+
+    const user = await User.findOne(
+      normalizedEmail ? { email: normalizedEmail } : { phoneNumber: normalizedPhoneNumber }
+    );
+
     if (!user) {
       return res.status(200).json({
-        message: 'If an account exists for this email, a reset code has been generated'
+        message: 'If an account exists for this handle, a reset code has been generated'
       });
     }
 
@@ -107,16 +169,30 @@ const forgotPassword = async (req, res, next) => {
 
 const resetPassword = async (req, res, next) => {
   try {
-    const { email, code, newPassword } = req.body;
-    if (!email || !code || !newPassword) {
-      return res.status(400).json({ message: 'Email, code, and newPassword are required' });
+    const { phoneNumber, email, code, newPassword } = req.body;
+    if ((!phoneNumber && !email) || !code || !newPassword) {
+      return res.status(400).json({ message: 'Email or phone number, code, and new password are required' });
     }
 
     if (String(newPassword).length < 6) {
       return res.status(400).json({ message: 'Password must be at least 6 characters' });
     }
 
-    const user = await User.findOne({ email: email.trim().toLowerCase() });
+    const normalizedPhoneNumber = String(phoneNumber || '').trim();
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+
+    if (normalizedPhoneNumber && !/^[0-9+\-\s]{8,15}$/.test(normalizedPhoneNumber)) {
+      return res.status(400).json({ message: 'Valid phone number is required' });
+    }
+
+    if (normalizedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return res.status(400).json({ message: 'Valid email is required' });
+    }
+
+    const user = await User.findOne(
+      normalizedEmail ? { email: normalizedEmail } : { phoneNumber: normalizedPhoneNumber }
+    );
+
     if (!user) {
       return res.status(400).json({ message: 'Invalid reset request' });
     }
@@ -172,6 +248,8 @@ const createUserByAdmin = async (req, res, next) => {
       password: hashedPassword,
       role
     });
+
+    await ensureDeliveryPartnerProfile(user);
 
     return res.status(201).json({
       _id: user._id,

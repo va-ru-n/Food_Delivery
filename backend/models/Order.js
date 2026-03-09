@@ -24,6 +24,24 @@ const orderItemSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const pointSchema = new mongoose.Schema(
+  {
+    type: {
+      type: String,
+      enum: ['Point'],
+      default: 'Point'
+    },
+    coordinates: {
+      type: [Number],
+      validate: {
+        validator: (value) => !value || value.length === 2,
+        message: 'Point coordinates must be [longitude, latitude]'
+      }
+    }
+  },
+  { _id: false }
+);
+
 const orderSchema = new mongoose.Schema(
   {
     userId: {
@@ -77,6 +95,30 @@ const orderSchema = new mongoose.Schema(
     deliveryAssignedAt: {
       type: Date
     },
+    acceptedByDeliveryAt: {
+      type: Date
+    },
+    deliveryPartnerLocation: pointSchema,
+    acceptBy: {
+      type: Date,
+      required: true
+    },
+    restaurantAcceptedAt: {
+      type: Date
+    },
+    rejectedAt: {
+      type: Date
+    },
+    cancelReason: {
+      type: String,
+      trim: true
+    },
+    estimatedDeliveryMinutes: {
+      type: Number,
+      default: 35,
+      min: 10,
+      max: 180
+    },
     pickedUpAt: {
       type: Date
     },
@@ -85,7 +127,16 @@ const orderSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['Pending', 'Preparing', 'Out for Delivery', 'Delivered', 'Cancelled'],
+      enum: [
+        'Pending',
+        'Preparing',
+        'Assigned',
+        'PickedUp',
+        'OutForDelivery',
+        'Delivered',
+        'Rejected',
+        'Cancelled'
+      ],
       default: 'Pending'
     },
     deletedByUser: {

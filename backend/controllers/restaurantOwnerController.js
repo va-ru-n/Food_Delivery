@@ -2,12 +2,19 @@ const Order = require('../models/Order');
 const Restaurant = require('../models/Restaurant');
 const FoodItem = require('../models/FoodItem');
 const User = require('../models/User');
+const { assignNearestAvailablePartner } = require('../services/deliveryAssignmentService');
+const { clearOrderTimer } = require('../services/orderTimerService');
+const { broadcastOrderUpdated, emitToDelivery } = require('../socket/socketEmitter');
 
 const transitions = {
-  Pending: 'Preparing',
-  Preparing: null,
-  'Out for Delivery': null,
-  Delivered: null
+  Pending: ['Preparing', 'Rejected'],
+  Preparing: [],
+  Assigned: [],
+  PickedUp: [],
+  OutForDelivery: [],
+  Delivered: [],
+  Rejected: [],
+  Cancelled: []
 };
 
 const validAvailabilityStatuses = ['Available', 'Not Available', 'Last Few', 'Trending', 'Fresh'];
@@ -112,8 +119,8 @@ const getRestaurantOrders = async (req, res, next) => {
     }
 
     const orders = await Order.find({ restaurantId: restaurant._id })
-      .populate('userId', 'name email')
-      .populate('deliveryPartner', 'name email')
+      .populate('userId', 'name email phoneNumber')
+      .populate('deliveryPartner', 'name email phoneNumber')
       .sort({ createdAt: -1 });
 
     return res.status(200).json(orders);
@@ -132,30 +139,59 @@ const updateRestaurantOrderStatus = async (req, res, next) => {
       return res.status(404).json({ message: 'Restaurant not found for this owner' });
     }
 
-    const order = await Order.findOne({ _id: id, restaurantId: restaurant._id });
+    const order = await Order.findOne({ _id: id, restaurantId: restaurant._id })
+      .populate('userId', 'name email')
+      .populate('deliveryPartner', 'name email phoneNumber')
+      .populate('restaurantId', 'name location');
+
     if (!order) {
       return res.status(404).json({ message: 'Order not found for your restaurant' });
     }
 
-    const nextAllowedStatus = transitions[order.status];
-    if (!nextAllowedStatus) {
+    const allowedStatuses = transitions[order.status] || [];
+    if (!allowedStatuses.includes(status)) {
       return res.status(400).json({
-        message: order.status === 'Preparing'
-          ? 'Assign a delivery partner to move this order to Out for Delivery'
-          : `Order is ${order.status} and cannot be updated here`
+        message: `Invalid status change. You can only move from ${order.status} to ${allowedStatuses.join(', ') || 'none'}`
       });
     }
 
-    if (status !== nextAllowedStatus) {
-      return res.status(400).json({
-        message: `Invalid status change. You can only move from ${order.status} to ${nextAllowedStatus}`
-      });
+    if (status === 'Rejected') {
+      order.status = 'Rejected';
+      order.rejectedAt = new Date();
+      order.cancelReason = 'Rejected by restaurant';
+      clearOrderTimer(order._id);
+      await order.save();
+      const payload = order.toObject();
+      broadcastOrderUpdated(payload);
+      return res.status(200).json(order);
     }
 
-    order.status = status;
-    await order.save();
+    if (status === 'Preparing') {
+      if (order.acceptBy && order.acceptBy <= new Date()) {
+        return res.status(400).json({ message: 'Order acceptance window has expired' });
+      }
 
-    return res.status(200).json(order);
+      order.status = 'Preparing';
+      order.restaurantAcceptedAt = new Date();
+      clearOrderTimer(order._id);
+      await order.save();
+
+      const assignmentResult = await assignNearestAvailablePartner({ order, restaurant });
+      const refreshedOrder = await Order.findById(order._id)
+        .populate('userId', 'name email')
+        .populate('deliveryPartner', 'name email phoneNumber')
+        .populate('restaurantId', 'name location');
+
+      const payload = refreshedOrder.toObject();
+      if (assignmentResult?.partner?.userId?._id) {
+        emitToDelivery(assignmentResult.partner.userId._id, 'deliveryAssigned', payload);
+      }
+      broadcastOrderUpdated(payload);
+
+      return res.status(200).json(refreshedOrder);
+    }
+
+    return res.status(400).json({ message: 'Unsupported status update' });
   } catch (error) {
     return next(error);
   }
@@ -169,7 +205,7 @@ const getDeliveryPartnersForRestaurant = async (req, res, next) => {
     }
 
     const partners = await User.find({ role: 'delivery' })
-      .select('_id name email')
+      .select('_id name email phoneNumber')
       .sort({ createdAt: -1 });
 
     return res.status(200).json(partners);
@@ -192,13 +228,16 @@ const assignDeliveryPartnerToOrder = async (req, res, next) => {
       return res.status(404).json({ message: 'Restaurant not found for this owner' });
     }
 
-    const order = await Order.findOne({ _id: id, restaurantId: restaurant._id });
+    const order = await Order.findOne({ _id: id, restaurantId: restaurant._id })
+      .populate('userId', 'name email')
+      .populate('restaurantId', 'name location')
+      .populate('deliveryPartner', 'name email');
     if (!order) {
       return res.status(404).json({ message: 'Order not found for your restaurant' });
     }
 
-    if (order.status !== 'Preparing') {
-      return res.status(400).json({ message: 'Only Preparing orders can be assigned to delivery partners' });
+    if (!['Preparing', 'Assigned'].includes(order.status)) {
+      return res.status(400).json({ message: 'Only Preparing or Assigned orders can be assigned to delivery partners' });
     }
 
     const partner = await User.findOne({ _id: deliveryPartnerId, role: 'delivery' }).select('_id name email');
@@ -208,14 +247,17 @@ const assignDeliveryPartnerToOrder = async (req, res, next) => {
 
     order.deliveryPartner = partner._id;
     order.deliveryAssignedAt = new Date();
-    order.pickedUpAt = null;
-    order.deliveredAt = null;
-    order.status = 'Out for Delivery';
+    order.status = 'Assigned';
     await order.save();
 
     const populatedOrder = await Order.findById(order._id)
       .populate('userId', 'name email')
-      .populate('deliveryPartner', 'name email');
+      .populate('deliveryPartner', 'name email phoneNumber')
+      .populate('restaurantId', 'name location');
+
+    const payload = populatedOrder.toObject();
+    emitToDelivery(partner._id, 'deliveryAssigned', payload);
+    broadcastOrderUpdated(payload);
 
     return res.status(200).json(populatedOrder);
   } catch (error) {

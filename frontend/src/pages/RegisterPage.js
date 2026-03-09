@@ -5,7 +5,12 @@ import ErrorMessage from '../components/ErrorMessage';
 
 function RegisterPage({ onAuthSuccess }) {
   const navigate = useNavigate();
-  const [formData, setFormData] = useState({ name: '', email: '', password: '' });
+  const [formData, setFormData] = useState({
+    name: '',
+    phoneNumber: '',
+    password: '',
+    confirmPassword: ''
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -16,8 +21,13 @@ function RegisterPage({ onAuthSuccess }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!formData.name || !formData.email || !formData.password) {
+    if (!formData.name || !formData.phoneNumber || !formData.password || !formData.confirmPassword) {
       setError('Please fill all fields');
+      return;
+    }
+
+    if (!/^[0-9+\-\s]{8,15}$/.test(formData.phoneNumber.trim())) {
+      setError('Enter a valid phone number');
       return;
     }
 
@@ -26,9 +36,19 @@ function RegisterPage({ onAuthSuccess }) {
       return;
     }
 
+    if (formData.password !== formData.confirmPassword) {
+      setError('Password mismatch');
+      return;
+    }
+
     try {
       setLoading(true);
-      const { data } = await authAPI.register(formData);
+      const payload = {
+        name: formData.name.trim(),
+        phoneNumber: formData.phoneNumber.trim(),
+        password: formData.password
+      };
+      const { data } = await authAPI.register(payload);
       onAuthSuccess(data);
       navigate('/');
     } catch (err) {
@@ -46,7 +66,7 @@ function RegisterPage({ onAuthSuccess }) {
 
         <div>
           <label htmlFor="name" className="mb-1 block text-sm font-medium text-gray-700">
-            Name
+            Full Name
           </label>
           <input
             id="name"
@@ -55,22 +75,22 @@ function RegisterPage({ onAuthSuccess }) {
             value={formData.name}
             onChange={handleChange}
             className="w-full rounded-md border border-gray-300 px-3 py-2"
-            placeholder="Your name"
+            placeholder="Enter full name"
           />
         </div>
 
         <div>
-          <label htmlFor="email" className="mb-1 block text-sm font-medium text-gray-700">
-            Email
+          <label htmlFor="phoneNumber" className="mb-1 block text-sm font-medium text-gray-700">
+            Phone Number
           </label>
           <input
-            id="email"
-            name="email"
-            type="email"
-            value={formData.email}
+            id="phoneNumber"
+            name="phoneNumber"
+            type="tel"
+            value={formData.phoneNumber}
             onChange={handleChange}
             className="w-full rounded-md border border-gray-300 px-3 py-2"
-            placeholder="you@example.com"
+            placeholder="Enter phone number"
           />
         </div>
 
@@ -86,6 +106,21 @@ function RegisterPage({ onAuthSuccess }) {
             onChange={handleChange}
             className="w-full rounded-md border border-gray-300 px-3 py-2"
             placeholder="Minimum 6 characters"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="confirmPassword" className="mb-1 block text-sm font-medium text-gray-700">
+            Re-enter Password
+          </label>
+          <input
+            id="confirmPassword"
+            name="confirmPassword"
+            type="password"
+            value={formData.confirmPassword}
+            onChange={handleChange}
+            className="w-full rounded-md border border-gray-300 px-3 py-2"
+            placeholder="Re-enter password"
           />
         </div>
 

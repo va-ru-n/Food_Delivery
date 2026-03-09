@@ -7,10 +7,22 @@ const userSchema = new mongoose.Schema(
       required: true,
       trim: true
     },
+    phoneNumber: {
+      type: String,
+      default: undefined,
+      set: (value) => {
+        const normalized = String(value || '').trim();
+        return normalized || undefined;
+      },
+      trim: true
+    },
     email: {
       type: String,
-      required: true,
-      unique: true,
+      default: undefined,
+      set: (value) => {
+        const normalized = String(value || '').trim().toLowerCase();
+        return normalized || undefined;
+      },
       lowercase: true,
       trim: true
     },
@@ -33,6 +45,22 @@ const userSchema = new mongoose.Schema(
   },
   {
     timestamps: { createdAt: true, updatedAt: false }
+  }
+);
+
+userSchema.index(
+  { phoneNumber: 1 },
+  {
+    unique: true,
+    sparse: true
+  }
+);
+
+userSchema.index(
+  { email: 1 },
+  {
+    unique: true,
+    sparse: true
   }
 );
 

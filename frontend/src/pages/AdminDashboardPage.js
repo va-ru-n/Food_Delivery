@@ -3,7 +3,7 @@ import ErrorMessage from '../components/ErrorMessage';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { authAPI, orderAPI, restaurantAPI } from '../services/api';
 
-const statusOptions = ['Pending', 'Preparing', 'Out for Delivery', 'Delivered', 'Cancelled'];
+const statusOptions = ['Pending', 'Preparing', 'Assigned', 'PickedUp', 'OutForDelivery', 'Delivered', 'Rejected', 'Cancelled'];
 const time12Pattern = /^(0?[1-9]|1[0-2]):([0-5]\d)\s?(AM|PM)$/i;
 const time24Pattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
@@ -556,3 +556,4 @@ function AdminDashboardPage() {
 }
 
 export default AdminDashboardPage;
+
