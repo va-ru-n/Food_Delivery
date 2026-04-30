@@ -5,7 +5,7 @@ import ErrorMessage from '../components/ErrorMessage';
 
 function LoginPage({ onAuthSuccess }) {
   const navigate = useNavigate();
-  const [formData, setFormData] = useState({ identifier: '', password: '' });
+  const [formData, setFormData] = useState({ phoneNumber: '', password: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -16,29 +16,21 @@ function LoginPage({ onAuthSuccess }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!formData.identifier || !formData.password) {
+    if (!formData.phoneNumber || !formData.password) {
       setError('Please fill all fields');
       return;
     }
 
-    const trimmedIdentifier = formData.identifier.trim();
-    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedIdentifier);
-    const isPhone = /^[0-9+\-\s]{8,15}$/.test(trimmedIdentifier);
-
-    if (!isEmail && !isPhone) {
-      setError('Enter a valid email or phone number');
+    const trimmedPhoneNumber = formData.phoneNumber.trim();
+    if (!/^[0-9+\-\s]{8,15}$/.test(trimmedPhoneNumber)) {
+      setError('Enter a valid phone number');
       return;
     }
 
     const payload = {
+      phoneNumber: trimmedPhoneNumber,
       password: formData.password
     };
-
-    if (isEmail) {
-      payload.email = trimmedIdentifier;
-    } else {
-      payload.phoneNumber = trimmedIdentifier;
-    }
 
     try {
       setLoading(true);
@@ -67,17 +59,17 @@ function LoginPage({ onAuthSuccess }) {
         <ErrorMessage message={error} />
 
         <div>
-          <label htmlFor="identifier" className="mb-1 block text-sm font-medium text-gray-700">
-            Email or Phone Number
+          <label htmlFor="phoneNumber" className="mb-1 block text-sm font-medium text-gray-700">
+            Mobile Number
           </label>
           <input
-            id="identifier"
-            name="identifier"
-            type="text"
-            value={formData.identifier}
+            id="phoneNumber"
+            name="phoneNumber"
+            type="tel"
+            value={formData.phoneNumber}
             onChange={handleChange}
             className="w-full rounded-md border border-gray-300 px-3 py-2"
-            placeholder="Enter email or phone number"
+            placeholder="Enter mobile number"
           />
         </div>
 
