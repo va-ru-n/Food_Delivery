@@ -82,11 +82,15 @@ const loginUser = async (req, res, next) => {
     const { phoneNumber, email, password } = req.body;
 
     if (!password || (!phoneNumber && !email)) {
-      return res.status(400).json({ message: 'Email or phone number and password are required' });
+      return res.status(400).json({ message: 'Phone number and password are required' });
     }
 
     const normalizedPhoneNumber = String(phoneNumber || '').trim();
     const normalizedEmail = String(email || '').trim().toLowerCase();
+
+    if (normalizedPhoneNumber && normalizedEmail) {
+      return res.status(400).json({ message: 'Use either phone number or email to login' });
+    }
 
     if (normalizedPhoneNumber && !/^[0-9+\-\s]{8,15}$/.test(normalizedPhoneNumber)) {
       return res.status(400).json({ message: 'Valid phone number is required' });
